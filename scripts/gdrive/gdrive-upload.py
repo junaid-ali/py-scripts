@@ -45,27 +45,6 @@ local_file_path = configs['default']['file_to_backup']
 gdrive_backup_dir = configs['default']['gdrive_backup_dir']
 
 
-def getDirId(by_name, service):
-    query="mimeType='application/vnd.google-apps.folder' \
-           and name contains '{}'".format(by_name)
-
-    response = service.files().list(q=query,
-                                   fields="files(name, id)",
-                                   pageToken=None
-                                   ).execute()
-
-    files_found=[]
-    for file in response.get('files', []):
-        files_found.append(file.get('id'))
-
-    if len(files_found) == 0:
-        raise ValueError("ERROR: Unable to find any directory with the name '{}' found!".format(by_name))
-    elif len(files_found) > 1:
-        raise ValueError("ERROR: Multiple directories with the name '{}' found!".format(by_name))
-
-    return files_found[0]
-
-
 def fetchCredentials():
     os.chdir(SECRETS_DIR)
     creds = None
@@ -91,6 +70,51 @@ def fetchCredentials():
     return creds
 
 
+def getDirId(by_name, service):
+    query = "mimeType='application/vnd.google-apps.folder' \
+             and name contains '{}'".format(by_name)
+
+    response = service.files().list(q=query,
+                                   fields="files(name, id)",
+                                   pageToken=None
+                                   ).execute()
+
+    files_found=[]
+    for file in response.get('files', []):
+        files_found.append(file.get('id'))
+
+    if len(files_found) == 0:
+        raise ValueError("ERROR: Unable to find any directory with the name '{}' found!".format(by_name))
+    elif len(files_found) > 1:
+        raise ValueError("ERROR: Multiple directories with the name '{}' found!".format(by_name))
+
+    return files_found[0]
+
+
+def fileExists(file_name, folder_id, service):
+    query = "mimeType='application/gzip' and \
+             name contains '{file_name}' and \
+             '{folder_id}' in parents".format(file_name=file_name,
+                                              folder_id=folder_id)
+    response = service.files().list(q=query,
+                                   fields="files(name, id)",
+                                   pageToken=None
+                                   ).execute()
+
+    files_found=[]
+    for file in response.get('files', []):
+        files_found.append(file.get('id'))
+
+    if len(files_found) == 0:
+        print('File not found: {}'.format(files_found))
+        return False, 0
+    elif len(files_found) == 1:
+        print('Files found: {}'.format(files_found))
+        return True, files_found[0]
+    else:
+        raise ValueError("ERROR: Muliple files found in the directory '{}'!".format(folder_id))
+
+
 def main():
 
     print('Fetching credentials to access drive API')
@@ -102,25 +126,31 @@ def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
 
     print("Compressing file before upload")
-    filename = os.path.basename(local_file_path)
+    filename = os.path.basename(local_file_path)+'.gz'
     with open(local_file_path, 'rb') as file_orig:
-        with gzip.open(filename+'.gz', 'wb') as file_zip:
+        with gzip.open(filename, 'wb') as file_zip:
             shutil.copyfileobj(file_orig, file_zip)
 
     dir_id=getDirId(gdrive_backup_dir, service)
     print("Folder '{dir}' found with ID: {id}".format(dir=gdrive_backup_dir, id=dir_id))
 
+    file_exists, file_id = fileExists(filename, dir_id, service)
     body = {
             'name': filename,
-            'mimetype': 'application/vnd.google-apps.unknown',
             'parents': [dir_id]
            }
-    media = MediaFileUpload(filename+'.gz', mimetype='application/gzip')
+
+    media = MediaFileUpload(filename, mimetype='application/gzip')
 
     # Call the Drive v3 API
-    file = service.files().create(body=body,
-                                  media_body=media, fields='id').execute()
-    os.remove(filename+'.gz')
+    if not file_exists:
+        file = service.files().create(body=body,
+                                      media_body=media,
+                                      fields='id').execute()
+    else:
+        file = service.files().update(fileId=file_id,
+                                      media_body=media).execute()
+    os.remove(filename)
     print('File uploaded successfully!')
 
 
