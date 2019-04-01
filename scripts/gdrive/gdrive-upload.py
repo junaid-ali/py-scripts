@@ -1,4 +1,5 @@
-"""Tool for syncing a file to Google Drive
+"""
+Tool for syncing a file to Google Drive
 
 Usage:
     gdrive_sync.py --config=FILE
