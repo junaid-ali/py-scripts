@@ -43,6 +43,7 @@ configs.read(CONFIGS_FILE)
 SECRETS_DIR = configs['default']['secrets_dir']
 local_file_path = configs['default']['file_to_backup']
 gdrive_backup_dir = configs['default']['gdrive_backup_dir']
+compress = ("true" == configs['default']['compress'])
 
 
 def fetchCredentials():
@@ -91,19 +92,22 @@ def getDirId(by_name, service):
     return files_found[0]
 
 
-def fileExists(file_name, folder_id, service):
-    query = "mimeType='application/gzip' and \
+def fileExists(file_name, folder_id, mimetype, service):
+    query = "mimeType='{mimetype}' and \
              name contains '{file_name}' and \
-             '{folder_id}' in parents".format(file_name=file_name,
+             '{folder_id}' in parents".format(mimetype=mimetype,
+                                              file_name=file_name,
                                               folder_id=folder_id)
     response = service.files().list(q=query,
-                                   fields="files(name, id)",
-                                   pageToken=None
+                                   fields="files(mimeType, name, id)",
+                                   pageToken=None,
+                                   #pageSize=900,
                                    ).execute()
 
     files_found=[]
     for file in response.get('files', []):
-        files_found.append(file.get('id'))
+        if file.get('mimeType') == mimetype:
+            files_found.append(file.get('id'))
 
     if len(files_found) == 0:
         print('File not found: {}'.format(files_found))
@@ -126,21 +130,30 @@ def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
 
     print("Compressing file before upload")
-    filename = os.path.basename(local_file_path)+'.gz'
-    with open(local_file_path, 'rb') as file_orig:
-        with gzip.open(filename, 'wb') as file_zip:
-            shutil.copyfileobj(file_orig, file_zip)
+    filename = os.path.basename(local_file_path)+'.gz' \
+                                           if compress \
+                                           else os.path.basename(local_file_path)
+
+    mimetype = 'application/unknown'
+    if compress:
+        mimetype = 'application/gzip'
+        with open(local_file_path, 'rb') as file_orig:
+            with open(filename, 'wb') as file_zip:
+                shutil.copyfileobj(file_orig, file_zip)
+    else:
+        shutil.copy2(local_file_path, filename)
 
     dir_id=getDirId(gdrive_backup_dir, service)
     print("Folder '{dir}' found with ID: {id}".format(dir=gdrive_backup_dir, id=dir_id))
 
-    file_exists, file_id = fileExists(filename, dir_id, service)
+    file_exists, file_id = fileExists(filename, dir_id, mimetype, service)
     body = {
             'name': filename,
             'parents': [dir_id]
            }
 
-    media = MediaFileUpload(filename, mimetype='application/gzip')
+
+    media = MediaFileUpload(filename, mimetype=mimetype)
 
     # Call the Drive v3 API
     if not file_exists:
