@@ -130,10 +130,11 @@ def main():
     os.chdir(CUR_DIR)
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
 
-    print("Compressing file before upload")
-    filename = os.path.basename(local_file_path)+'.gz' \
-                                           if compress \
-                                           else os.path.basename(local_file_path)
+    if compress:
+        print("Compressing file before upload")
+        filename = os.path.basename(local_file_path)+'.gz'
+    else:
+        filename = os.path.basename(local_file_path)
 
     mimetype = 'application/unknown'
     if compress:
